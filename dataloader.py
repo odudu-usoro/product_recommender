@@ -1,5 +1,3 @@
-#import numpy as np
-
 def batch_data(X, y, batch_size):
     """Simple function to batch data."""
     for i in range(0, len(X), batch_size):
