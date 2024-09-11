@@ -76,6 +76,18 @@ def preprocess_data():
     # Print number of users and items
     print("Number of unique users:", num_users)
     print("Number of unique items:", num_items)
+
+
+    # Ensure X_train, X_val, X_test are numpy arrays
+    X_train_np = X_train.to_numpy()
+    X_val_np = X_val.to_numpy()
+    X_test_np = X_test.to_numpy()
+    y_train_np = y_train.to_numpy()
+    y_val_np = y_val.to_numpy()
+    y_test_np = y_test.to_numpy()
+    
+    num_users = X_train_np[:, 0].max() + 1
+    num_items = X_train_np[:, 1].max() + 1
     
     return X_train_np, X_val, X_test, y_train_np, y_val, y_test, num_users, num_items
 
