@@ -215,7 +215,7 @@ class ANCFModel:
             print(f"Checkpoint loaded from {checkpoint_path}")
         else:
             print(f"No checkpoint found at {checkpoint_path}")
-'''
+
 
 import numpy as np
 import os
@@ -339,3 +339,107 @@ class ANCFModel:
             print(f"Checkpoint loaded from {checkpoint_path}")
         else:
             print(f"No checkpoint found at {checkpoint_path}")
+
+
+import numpy as np
+
+class ANCFModel:
+    def __init__(self, num_users, num_items, embedding_dim=32, dropout_rate=0.3):
+        self.num_users = num_users
+        self.num_items = num_items
+        self.embedding_dim = embedding_dim
+        self.dropout_rate = dropout_rate
+
+        self.user_embeddings = np.random.normal(0, 0.1, (num_users, embedding_dim))
+        self.item_embeddings = np.random.normal(0, 0.1, (num_items, embedding_dim))
+
+        # Weights for attention
+        self.Wq = np.random.normal(0, 0.1, (embedding_dim, embedding_dim))
+        self.Wk = np.random.normal(0, 0.1, (embedding_dim, embedding_dim))
+        self.Wv = np.random.normal(0, 0.1, (embedding_dim, embedding_dim))
+
+        # Prediction layer
+        self.W_out = np.random.normal(0, 0.1, (embedding_dim * 2, 1))
+        self.b_out = np.zeros((1,))
+
+    def attention(self, user_emb, item_emb):
+        Q = user_emb @ self.Wq
+        K = item_emb @ self.Wk
+        V = item_emb @ self.Wv
+        attn_scores = np.dot(Q, K) / np.sqrt(self.embedding_dim)
+        attn_weights = np.exp(attn_scores) / np.sum(np.exp(attn_scores))
+        context = attn_weights * V
+        return context
+
+    def predict(self, user_ids, item_ids):
+        preds = []
+        for u, i in zip(user_ids, item_ids):
+            user_emb = self.user_embeddings[u]
+            item_emb = self.item_embeddings[i]
+            context = self.attention(user_emb, item_emb)
+            x = np.concatenate([user_emb, context])
+            y_pred = x @ self.W_out + self.b_out
+            preds.append(y_pred)
+        return np.array(preds).flatten()
+'''
+
+import numpy as np
+
+class ANCFModelAttention:
+    def __init__(self, num_users, num_items, embedding_dim=32, dropout_rate=0.3):
+        self.num_users = num_users
+        self.num_items = num_items
+        self.embedding_dim = embedding_dim
+
+        # Embeddings
+        self.user_embeddings = np.random.normal(0, 0.1, (num_users, embedding_dim))
+        self.item_embeddings = np.random.normal(0, 0.1, (num_items, embedding_dim))
+
+        # Attention weights
+        self.Wq = np.random.normal(0, 0.1, (embedding_dim, embedding_dim))
+        self.Wk = np.random.normal(0, 0.1, (embedding_dim, embedding_dim))
+        self.Wv = np.random.normal(0, 0.1, (embedding_dim, embedding_dim))
+
+        # Output layer
+        self.W_out = np.random.normal(0, 0.1, (embedding_dim * 2, 1))
+        self.b_out = np.zeros((1,))
+
+    def attention(self, user_emb, item_hist_embs):
+        """
+        user_emb: (embedding_dim,)
+        item_hist_embs: (num_items_hist, embedding_dim)
+        """
+        Q = user_emb @ self.Wq  # (embedding_dim,)
+        K = item_hist_embs @ self.Wk  # (num_items_hist, embedding_dim)
+        V = item_hist_embs @ self.Wv  # (num_items_hist, embedding_dim)
+
+        attn_scores = (Q @ K.T) / np.sqrt(self.embedding_dim)  # (num_items_hist,)
+        attn_weights = np.exp(attn_scores - attn_scores.max())  # stability trick
+        attn_weights /= attn_weights.sum()
+        context = attn_weights @ V  # weighted sum → (embedding_dim,)
+        return context
+
+    def predict(self, user_ids, item_ids, user_histories):
+        """
+        user_histories: list of arrays, each array is item IDs the user has interacted with
+        """
+        preds = []
+        for u, i, hist in zip(user_ids, item_ids, user_histories):
+            user_emb = self.user_embeddings[u]
+            item_emb = self.item_embeddings[i]
+            hist_embs = self.item_embeddings[hist] if len(hist) > 0 else np.zeros((1, self.embedding_dim))
+
+            context = self.attention(user_emb, hist_embs)
+            x = np.concatenate([user_emb, context])
+            y_pred = x @ self.W_out + self.b_out
+            preds.append(y_pred)
+        return np.array(preds).flatten()
+    
+    def save_checkpoint(self, path):
+        """Save model parameters to a .npy file."""
+        np.save(path, self.__dict__)
+
+    def load_checkpoint(self, path):
+        """Load model parameters from a saved .npy file."""
+        checkpoint = np.load(path, allow_pickle=True).item()
+        self.__dict__.update(checkpoint)

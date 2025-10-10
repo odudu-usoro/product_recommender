@@ -141,7 +141,7 @@ def main():
 
 if __name__ == "__main__":
     main()
-'''
+
 
 # train.py
 
@@ -287,3 +287,271 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+def train_model(model, train_batches, val_batches, epochs, lr):
+    print("Starting training...", flush=True)
+    print(f"Epochs = {epochs}, Train batches = {len(train_batches)}, Val batches = {len(val_batches)}", flush=True)
+
+    best_val_loss = float('inf')
+    patience = 2
+    patience_counter = 0
+
+    train_losses = []
+    val_losses = []
+
+    for epoch in range(epochs):
+        train_loss = 0
+        for X_batch, y_batch in train_batches:
+            user_ids, item_ids = X_batch[:, 0], X_batch[:, 1]
+            preds = model.predict(user_ids, item_ids)
+            loss = np.mean((preds - y_batch) ** 2)
+
+            # simple SGD
+            grad = (preds - y_batch).mean()
+            model.W_out -= lr * grad * model.W_out
+            train_loss += loss
+
+        if len(train_batches) == 0:
+            print("⚠️ No training batches found.")
+            break
+
+        train_loss /= len(train_batches)
+
+        # Validation
+        val_loss = 0
+        for X_batch, y_batch in val_batches:
+            preds = model.predict(X_batch[:, 0], X_batch[:, 1])
+            val_loss += np.mean((preds - y_batch) ** 2)
+        val_loss /= len(val_batches)
+
+        train_losses.append(train_loss)
+        val_losses.append(val_loss)
+
+        print(f"Epoch {epoch+1}/{epochs} — Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}", flush=True)
+
+        # Save best model
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            np.save('best_model.npy', model.__dict__)
+            print("✅ Saved best model.", flush=True)
+            patience_counter = 0
+        else:
+            patience_counter += 1
+            if patience_counter >= patience:
+                print("⛔ Early stopping.")
+                break
+
+        lr *= 0.9  # decay learning rate
+
+    # === Plot losses and save ===
+    plt.plot(train_losses, label="Training Loss", color='royalblue')
+    plt.plot(val_losses, label="Validation Loss", color='tomato')
+    plt.xlabel("Epochs")
+    plt.ylabel("Loss (MSE)")
+    plt.title("Training vs Validation Loss")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig("loss_curve.png", dpi=300)
+    plt.show()
+
+if __name__ == "__main__":
+    print("Running preprocessing pipeline...", flush=True)
+    from ancf_models import ANCFModel
+    from dataloader import batch_data
+
+    # 1️⃣ Preprocess data
+    from preprocess import preprocess_data
+    X_train, X_val, X_test, y_train, y_val, y_test = preprocess_data()
+
+    # 2️⃣ Create batches
+    train_batches = list(batch_data(X_train, y_train, batch_size=64))
+    val_batches = list(batch_data(X_val, y_val, batch_size=64))
+
+    # 3️⃣ Initialize model
+    # Use full dataset to determine embedding sizes
+    num_users = max(X_train["user_id"].max(), X_val["user_id"].max(), X_test["user_id"].max()) + 1
+    num_items = max(X_train["product_id"].max(), X_val["product_id"].max(), X_test["product_id"].max()) + 1
+
+    model = ANCFModel(
+        num_users=num_users,
+        num_items=num_items,
+        embedding_dim=64
+    )
+
+    # 4️⃣ Train model
+    from train import train_model
+    train_model(model, train_batches, val_batches, epochs=25, lr=0.01)
+
+    print("✅ Training finished. Loss curve saved to loss_curve.png")
+'''
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+def train_model_attention(model, train_batches, val_batches, user_histories_dict, epochs=10, lr=0.01):
+    """
+    train_batches: list of (X_batch, y_batch), X_batch[:,0]=user_ids, X_batch[:,1]=item_ids
+    user_histories_dict: dict {user_id: list of item_ids user interacted with}
+    """
+    best_val_loss = float('inf')
+    train_losses, val_losses = [], []
+
+    for epoch in range(epochs):
+        train_loss = 0
+        for X_batch, y_batch in train_batches:
+            # --- Ensure NumPy arrays ---
+            if not isinstance(X_batch, np.ndarray):
+                X_batch = X_batch.to_numpy()
+            if not isinstance(y_batch, np.ndarray):
+                y_batch = y_batch.to_numpy()
+
+            user_ids, item_ids = X_batch[:,0], X_batch[:,1]
+            batch_size = len(y_batch)
+
+            X_concat = []
+            contexts = []
+
+            for u, i in zip(user_ids, item_ids):
+                user_emb = model.user_embeddings[u]
+                hist = user_histories_dict.get(u, [])
+                hist_embs = model.item_embeddings[hist] if len(hist) > 0 else np.zeros((1, model.embedding_dim))
+
+                # attention
+                Q = user_emb @ model.Wq
+                K = hist_embs @ model.Wk
+                V = hist_embs @ model.Wv
+                attn_scores = (Q @ K.T) / np.sqrt(model.embedding_dim)
+                attn_weights = np.exp(attn_scores - attn_scores.max())
+                attn_weights /= attn_weights.sum()
+                context = attn_weights @ V
+
+                x_vec = np.concatenate([user_emb, context])
+                X_concat.append(x_vec)
+                contexts.append((context, attn_weights, hist))
+
+            X_concat = np.array(X_concat)
+            preds = X_concat @ model.W_out + model.b_out
+            errors = (preds.flatten() - y_batch)  # NumPy array
+
+            loss = np.mean(errors**2)
+            train_loss += loss
+
+            # --- Gradients ---
+            grad_W_out = (2 / batch_size) * X_concat.T @ errors[:, None]
+            grad_b_out = (2 / batch_size) * errors.sum()
+
+            model.W_out -= lr * grad_W_out
+            model.b_out -= lr * grad_b_out
+
+            # Update embeddings
+            for idx, (u, i) in enumerate(zip(user_ids, item_ids)):
+                error = errors[idx]
+                grad_user = (2 / batch_size) * model.W_out[:model.embedding_dim].flatten() * error
+                model.user_embeddings[u] -= lr * grad_user
+
+                grad_item = (2 / batch_size) * model.W_out[model.embedding_dim:].flatten() * error
+                model.item_embeddings[i] -= lr * grad_item
+
+                # Historical items
+                context_vec, attn_weights, hist = contexts[idx]
+                for h_idx, attn_w in zip(hist, attn_weights):
+                    grad_hist_item = (2 / batch_size) * model.W_out[model.embedding_dim:].flatten() * error * attn_w
+                    model.item_embeddings[h_idx] -= lr * grad_hist_item
+
+        train_loss /= len(train_batches)
+        train_losses.append(train_loss)
+
+        # --- Validation ---
+        val_loss = 0
+        for X_batch, y_batch in val_batches:
+            if not isinstance(X_batch, np.ndarray):
+                X_batch = X_batch.to_numpy()
+            if not isinstance(y_batch, np.ndarray):
+                y_batch = y_batch.to_numpy()
+
+            user_ids, item_ids = X_batch[:,0], X_batch[:,1]
+
+            preds_val = []
+            for u, i in zip(user_ids, item_ids):
+                user_emb = model.user_embeddings[u]
+                hist = user_histories_dict.get(u, [])
+                hist_embs = model.item_embeddings[hist] if len(hist) > 0 else np.zeros((1, model.embedding_dim))
+
+                Q = user_emb @ model.Wq
+                K = hist_embs @ model.Wk
+                V = hist_embs @ model.Wv
+                attn_scores = (Q @ K.T) / np.sqrt(model.embedding_dim)
+                attn_weights = np.exp(attn_scores - attn_scores.max())
+                attn_weights /= attn_weights.sum()
+                context = attn_weights @ V
+                x_vec = np.concatenate([user_emb, context])
+                y_pred = x_vec @ model.W_out + model.b_out
+                preds_val.append(y_pred)
+
+            preds_val = np.array(preds_val).flatten()
+            val_loss += np.mean((preds_val - y_batch)**2)
+
+        val_loss /= len(val_batches)
+        val_losses.append(val_loss)
+
+        print(f"Epoch {epoch+1}/{epochs} — Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            np.save('best_model_attention.npy', model.__dict__)
+            print("✅ Saved best model.")
+
+    return train_losses, val_losses
+
+if __name__ == "__main__":
+    import matplotlib.pyplot as plt
+    from ancf_models import ANCFModelAttention
+    from dataloader import batch_data
+    from preprocess import preprocess_data
+
+    print("Running preprocessing pipeline...", flush=True)
+    X_train, X_val, X_test, y_train, y_val, y_test = preprocess_data()
+
+    # Create batches
+    train_batches = list(batch_data(X_train, y_train, batch_size=64))
+    val_batches = list(batch_data(X_val, y_val, batch_size=64))
+
+    # Initialize model
+    num_users = max(X_train["user_id"].max(), X_val["user_id"].max(), X_test["user_id"].max()) + 1
+    num_items = max(X_train["product_id"].max(), X_val["product_id"].max(), X_test["product_id"].max()) + 1
+
+    model = ANCFModelAttention(
+        num_users=num_users,
+        num_items=num_items,
+        embedding_dim=64
+    )
+
+    # Build user_histories dictionary from training set
+    user_histories = {}
+    for u, i in zip(X_train["user_id"], X_train["product_id"]):
+        if u not in user_histories:
+            user_histories[u] = []
+        user_histories[u].append(i)
+
+    # Train the model
+    train_losses, val_losses = train_model_attention(
+        model, train_batches, val_batches, user_histories, epochs=25, lr=0.01
+    )
+
+    # Plot losses
+    plt.plot(train_losses, label="Training Loss", color='royalblue')
+    plt.plot(val_losses, label="Validation Loss", color='tomato')
+    plt.xlabel("Epochs")
+    plt.ylabel("Loss (MSE)")
+    plt.title("Training vs Validation Loss")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig("loss_curve.png", dpi=300)
+    plt.show()
+
+    print("✅ Training finished. Loss curve saved to loss_curve.png")

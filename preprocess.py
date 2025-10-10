@@ -29,7 +29,7 @@ def preprocess_data():
 # Example of how to call this function in the main script
 if __name__ == "__main__":
     X_train, X_val, X_test, y_train, y_val, y_test = preprocess_data()
-'''
+
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
@@ -94,3 +94,120 @@ def preprocess_data():
 if __name__ == "__main__":
     X_train, X_val, X_test, y_train, y_val, y_test, num_users, num_items = preprocess_data()
 
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+
+def preprocess_data():
+    data = pd.read_csv('amazon.csv')
+
+    data['rating'] = pd.to_numeric(data['rating'], errors='coerce')
+    data = data.dropna(subset=['rating'])
+
+
+    # Filter users/items with too few interactions
+    user_counts = data['user_id'].value_counts()
+    item_counts = data['product_id'].value_counts()
+    filtered_data = data[
+        data['user_id'].isin(user_counts[user_counts >= 2].index) &
+        data['product_id'].isin(item_counts[item_counts >= 2].index)
+    ]
+    print(f"Filtered out {len(data) - len(filtered_data)} sparse interactions.")
+
+    # Encode IDs
+    user_encoder = LabelEncoder()
+    item_encoder = LabelEncoder()
+    filtered_data = filtered_data.copy()  # make an explicit copy to silence the warning
+    filtered_data['user_id'] = user_encoder.fit_transform(filtered_data['user_id'])
+    filtered_data['product_id'] = item_encoder.fit_transform(filtered_data['product_id'])
+
+    X = filtered_data[['user_id', 'product_id']]
+    y = filtered_data['rating']
+
+    # Train/Val/Test split
+    X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.2, random_state=42)
+    X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42)
+
+    print(f"Training data shape: {X_train.shape}, Validation: {X_val.shape}, Test: {X_test.shape}")
+    print(f"User ID range: {X['user_id'].min()}–{X['user_id'].max()}")
+    print(f"Product ID range: {X['product_id'].min()}–{X['product_id'].max()}")
+
+    # ✅ Reset indices to ensure alignment with batch generation
+    X_train = X_train.reset_index(drop=True)
+    X_val = X_val.reset_index(drop=True)
+    X_test = X_test.reset_index(drop=True)
+    y_train = y_train.reset_index(drop=True)
+    y_val = y_val.reset_index(drop=True)
+    y_test = y_test.reset_index(drop=True)
+    num_users = filtered_data['user_id'].nunique()
+    num_items = filtered_data['product_id'].nunique()
+
+    return X_train, X_val, X_test, y_train, y_val, y_test, num_users, num_items
+
+if __name__ == "__main__":
+    print("Running preprocessing only...", flush=True)
+    X_train, X_val, X_test, y_train, y_val, y_test = preprocess_data()
+    print("✅ Done preprocessing.")
+'''
+
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+
+def preprocess_data(return_histories=False):
+    data = pd.read_csv('amazon.csv')
+
+    data['rating'] = pd.to_numeric(data['rating'], errors='coerce')
+    data = data.dropna(subset=['rating'])
+
+    # Filter users/items with too few interactions
+    user_counts = data['user_id'].value_counts()
+    item_counts = data['product_id'].value_counts()
+    filtered_data = data[
+        data['user_id'].isin(user_counts[user_counts >= 2].index) &
+        data['product_id'].isin(item_counts[item_counts >= 2].index)
+    ]
+    print(f"Filtered out {len(data) - len(filtered_data)} sparse interactions.")
+
+    # Encode IDs
+    user_encoder = LabelEncoder()
+    item_encoder = LabelEncoder()
+    filtered_data = filtered_data.copy()
+    filtered_data['user_id'] = user_encoder.fit_transform(filtered_data['user_id'])
+    filtered_data['product_id'] = item_encoder.fit_transform(filtered_data['product_id'])
+
+    X = filtered_data[['user_id', 'product_id']]
+    y = filtered_data['rating']
+
+    print("Unique users:", filtered_data['user_id'].nunique())
+    print("Unique products:", filtered_data['product_id'].nunique())
+
+
+    # Train/Val/Test split
+    X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.2, random_state=42)
+    X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42)
+
+    print(f"Training data shape: {X_train.shape}, Validation: {X_val.shape}, Test: {X_test.shape}")
+    print(f"User ID range: {X['user_id'].min()}–{X['user_id'].max()}")
+    print(f"Product ID range: {X['product_id'].min()}–{X['product_id'].max()}")
+
+    # Reset indices
+    X_train = X_train.reset_index(drop=True)
+    X_val = X_val.reset_index(drop=True)
+    X_test = X_test.reset_index(drop=True)
+    y_train = y_train.reset_index(drop=True)
+    y_val = y_val.reset_index(drop=True)
+    y_test = y_test.reset_index(drop=True)
+
+    num_users = filtered_data['user_id'].nunique()
+    num_items = filtered_data['product_id'].nunique()
+
+    if return_histories:
+        user_histories = (
+            filtered_data.groupby('user_id')['product_id']
+            .apply(list)
+            .to_dict()
+        )
+        return X_train, X_val, X_test, y_train, y_val, y_test, num_users, num_items, user_histories
+
+    return X_train, X_val, X_test, y_train, y_val, y_test, num_users, num_items
