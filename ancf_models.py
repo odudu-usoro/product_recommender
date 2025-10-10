@@ -386,10 +386,11 @@ class ANCFModel:
 import numpy as np
 
 class ANCFModelAttention:
-    def __init__(self, num_users, num_items, embedding_dim=32, dropout_rate=0.3):
+    def __init__(self, num_users, num_items, embedding_dim=4, dropout_rate=0.0):
         self.num_users = num_users
         self.num_items = num_items
         self.embedding_dim = embedding_dim
+        self.dropout_rate = dropout_rate
 
         # Embeddings
         self.user_embeddings = np.random.normal(0, 0.1, (num_users, embedding_dim))

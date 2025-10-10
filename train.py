@@ -393,7 +393,7 @@ if __name__ == "__main__":
 import numpy as np
 import matplotlib.pyplot as plt
 
-def train_model_attention(model, train_batches, val_batches, user_histories_dict, epochs=10, lr=0.01):
+def train_model_attention(model, train_batches, val_batches, user_histories_dict, epochs=30, lr=0.01):
     """
     train_batches: list of (X_batch, y_batch), X_batch[:,0]=user_ids, X_batch[:,1]=item_ids
     user_histories_dict: dict {user_id: list of item_ids user interacted with}
@@ -514,7 +514,7 @@ if __name__ == "__main__":
     from preprocess import preprocess_data
 
     print("Running preprocessing pipeline...", flush=True)
-    X_train, X_val, X_test, y_train, y_val, y_test = preprocess_data()
+    X_train, X_val, X_test, y_train, y_val, y_test, num_users, num_items = preprocess_data()
 
     # Create batches
     train_batches = list(batch_data(X_train, y_train, batch_size=64))
@@ -527,7 +527,7 @@ if __name__ == "__main__":
     model = ANCFModelAttention(
         num_users=num_users,
         num_items=num_items,
-        embedding_dim=64
+        embedding_dim=4
     )
 
     # Build user_histories dictionary from training set
@@ -539,7 +539,7 @@ if __name__ == "__main__":
 
     # Train the model
     train_losses, val_losses = train_model_attention(
-        model, train_batches, val_batches, user_histories, epochs=25, lr=0.01
+        model, train_batches, val_batches, user_histories, epochs=30, lr=0.01
     )
 
     # Plot losses
