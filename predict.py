@@ -112,12 +112,17 @@ def build_user_histories(X_train_df):
     return user_histories
 
 def generate_topN_recommendations(model, user_histories, num_users, num_items, top_n=10):
-    """Generate top-N product recommendations per user."""
     all_recs = {}
     for user_id in range(num_users):
+        seen_items = set(user_histories.get(user_id, []))
         preds = np.zeros(num_items)
+
         for item_id in range(num_items):
-            preds[item_id] = predict_rating(model, user_id, item_id, user_histories)
+            if item_id in seen_items:
+                preds[item_id] = -np.inf  # Exclude seen items
+            else:
+                preds[item_id] = predict_rating(model, user_id, item_id, user_histories)
+
         top_items = np.argsort(preds)[::-1][:top_n]
         all_recs[user_id] = top_items
     return all_recs

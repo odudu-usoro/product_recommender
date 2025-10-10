@@ -339,7 +339,13 @@ def evaluate_metrics(model, X_test, y_test, user_histories_dict, k=10):
 
         # For ranking metrics
         user_to_preds.setdefault(user_id, []).append((item_id, pred))
-        user_to_true.setdefault(user_id, []).append((item_id, true_rating))
+        # Define a binary relevance threshold — adjust based on your dataset
+        is_relevant = 1 if true_rating >= 4 else 0   # If ratings are on a 1–5 scale
+        user_to_true.setdefault(user_id, []).append((item_id, is_relevant))
+
+        print(sum(len(v) for v in user_to_true.values()), "test interactions total")
+        print(sum(sum(r for _, r in v) for v in user_to_true.values()), "positive interactions total")
+
 
     # Compute metrics
     mse = mean_squared_error(targets, preds)
